@@ -1,0 +1,90 @@
+name: lateral_movement_response
+description: Containment and response to lateral movement detection
+version: "1.0"
+author: AutoHoneyX Security Team
+enabled: true
+
+triggers:
+  - lateral_movement_detected
+  - honeytoken_lateral_access
+  - suspicious_ssh_key_usage
+  - unusual_network_access
+
+scenarios:
+  - name: containment
+    description: Immediate containment of lateral movement
+    enabled: true
+    actions:
+      - action: alert_team
+        params:
+          channels: [slack, pagerduty]
+          severity: CRITICAL
+          message: |
+            🚨 CRITICAL: Lateral movement detected!
+            Initiating containment procedures.
+      
+      - action: block_ip
+        params:
+          ip: "{{source_ip}}"
+          reason: "Lateral movement attempted from this source"
+          duration_hours: 24
+      
+      - action: kill_process
+        params:
+          process_name: "{{detected_process}}"
+          reason: "Lateral movement process"
+          force: true
+      
+      - action: reset_credentials
+        params:
+          credential_type: ssh_keys
+          scope: affected_servers
+          notify_users: true
+
+  - name: network_isolation
+    description: Network-level isolation measures
+    enabled: false  # Manual approval required
+    actions:
+      - action: alert_team
+        params:
+          channels: [email]
+          severity: HIGH
+          message: |
+            Network isolation measures available:
+            - Disable remote access temporarily
+            - Isolate affected systems to separate VLAN
+            - Review firewall rules for anomalies
+
+  - name: investigation
+    description: Investigation of lateral movement path
+    enabled: true
+    actions:
+      - action: simulate_scenario
+        params:
+          scenario_type: lateral_movement_path_mapping
+          target: "{{starting_system}}"
+          trace_movements: true
+
+  - name: post_incident_hardening
+    description: Hardening after lateral movement contained
+    enabled: true
+    actions:
+      - action: alert_team
+        params:
+          channels: [email]
+          severity: MEDIUM
+          message: |
+            Lateral movement response complete.
+            Implement these hardening measures:
+            1. Review SSH key access controls
+            2. Enable multi-factor authentication
+            3. Implement network segmentation
+            4. Deploy EDR agent for continuous monitoring
+
+tags:
+  - lateral_movement
+  - network_security
+  - access_control
+  - incident_response
+
+estimated_execution_time_seconds: 60

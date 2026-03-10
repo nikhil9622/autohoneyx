@@ -1,0 +1,104 @@
+name: AutoHoneyX CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: autohoneyx
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: autohoneyx_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      env:
+        DATABASE_URL: postgresql://autohoneyx:test_password@localhost:5432/autohoneyx_test
+      run: |
+        pytest tests/ -v --cov=app --cov=monitoring --cov=scripts
+    
+    - name: Lint
+      run: |
+        flake8 app/ monitoring/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 app/ monitoring/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  inject-honeytokens:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Inject honeytokens
+      run: |
+        python scripts/inject_tokens.py --repo . --types aws db_postgresql api --files-per-type 3
+    
+    - name: Commit changes
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add .
+        git diff --staged --quiet || git commit -m "Auto-inject honeytokens [skip ci]"
+        git push || echo "No changes to commit"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, inject-honeytokens]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to cloud server
+      env:
+        SSH_KEY: ${{ secrets.CLOUD_SSH_KEY }}
+        HOST: ${{ secrets.CLOUD_HOST }}
+        USER: ${{ secrets.CLOUD_USER }}
+      run: |
+        echo "$SSH_KEY" > key.pem
+        chmod 600 key.pem
+        ssh -i key.pem -o StrictHostKeyChecking=no $USER@$HOST '
+          cd AutoHoneyX || git clone https://github.com/${{ github.repository }}.git AutoHoneyX
+          cd AutoHoneyX
+          git pull
+          docker-compose down
+          docker-compose up -d --build
+        '
+

@@ -1,0 +1,46 @@
+# Minimal Windows Development Requirements - No C++ Compilation Needed
+
+# Core
+python-dotenv==1.0.0
+sqlalchemy==2.0.46
+alembic==1.12.1
+
+# Web framework
+flask==3.0.0
+flask-cors==4.0.0
+
+# Monitoring
+watchdog==3.0.0
+
+# Dashboard
+streamlit==1.28.1
+plotly==5.18.0
+
+# HTTP
+requests==2.31.0
+python-dateutil==2.8.2
+httpx==0.25.2
+
+# Utilities
+pyyaml==6.0.1
+click==8.1.7
+ast-comments==1.2.3
+
+# Security
+cryptography==41.0.7
+bcrypt==4.0.1
+PyJWT==2.8.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+slowapi==0.1.9
+pydantic[email]==2.5.0
+
+# API
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+
+# Testing/Dev (optional)
+pytest==7.4.3
+black==23.11.0
+flake8==6.1.0

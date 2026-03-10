@@ -1,0 +1,120 @@
+name: security_validation
+description: Validate detection coverage through attack simulation
+version: "1.0"
+author: AutoHoneyX Security Team
+enabled: true
+
+triggers:
+  - manual_trigger
+  - scheduled_daily_validation
+  - quarterly_assessment
+
+scenarios:
+  - name: test_credential_theft
+    description: Simulate credential theft scenario
+    enabled: true
+    actions:
+      - action: alert_team
+        params:
+          channels: [slack]
+          severity: LOW
+          message: "🧪 Security validation: Starting credential theft simulation..."
+      
+      - action: simulate_scenario
+        params:
+          scenario_type: credential_theft
+          target: test_app_1
+          expected_detection_time_seconds: 5
+          validate_detection: true
+
+  - name: test_data_exfiltration
+    description: Simulate data exfiltration attempt
+    enabled: true
+    actions:
+      - action: alert_team
+        params:
+          channels: [slack]
+          severity: LOW
+          message: "🧪 Security validation: Starting data exfil simulation..."
+      
+      - action: simulate_scenario
+        params:
+          scenario_type: data_exfiltration
+          target: test_database
+          expected_detection_time_seconds: 10
+          validate_detection: true
+
+  - name: test_privilege_escalation
+    description: Simulate privilege escalation attempt
+    enabled: true
+    actions:
+      - action: shift_scenario
+        params:
+          scenario_type: privilege_escalation
+          target: test_server
+          expected_detection_time_seconds: 7
+          validate_detection: true
+
+  - name: test_command_execution
+    description: Simulate command execution on honeypot
+    enabled: true
+    actions:
+      - action: simulate_scenario
+        params:
+          scenario_type: command_execution
+          target: test_vm
+          command: "whoami && hostname"
+          expected_detection_time_seconds: 3
+          validate_detection: true
+
+  - name: test_malware_deployment
+    description: Simulate malware deployment scenario
+    enabled: false  # Requires sandbox
+    actions:
+      - action: alert_team
+        params:
+          channels: [email]
+          severity: MEDIUM
+          message: |
+            Malware simulation requires isolated sandbox.
+            Manual execution recommended for this scenario.
+
+  - name: validation_report
+    description: Generate security validation report
+    enabled: true
+    actions:
+      - action: alert_team
+        params:
+          channels: [email]
+          severity: LOW
+          message: |
+            ✅ Security Validation Complete
+            
+            Scenario Results:
+            - Credential theft: {{credential_theft_result}}
+            - Data exfiltration: {{exfil_result}}
+            - Privilege escalation: {{privesc_result}}
+            - Command execution: {{command_exec_result}}
+            
+            Detection latency benchmarks:
+            - Average: {{avg_detection_time}}ms
+            - Best: {{min_detection_time}}ms
+            - Worst: {{max_detection_time}}ms
+            
+            Recommendations:
+            1. Review scenarios with gaps
+            2. Increase sensitivity if acceptable
+            3. Update playbooks based on insights
+
+tags:
+  - security_testing
+  - detection_validation
+  - attack_simulation
+  - assessment
+
+estimated_execution_time_seconds: 180
+quarterly: true
+scheduling:
+  frequency: daily
+  time: "02:00"  # 2 AM UTC
+  timezone: UTC

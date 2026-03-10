@@ -1,0 +1,7 @@
+python-dotenv==1.0.0
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# Minimal development requirements for database initialization and basic API
+# Add additional packages (streamlit, fastapi, etc.) later or use Docker for
+# full-featured setup.

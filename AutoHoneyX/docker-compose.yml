@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: autohoneyx_db
+    environment:
+      POSTGRES_USER: autohoneyx
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: autohoneyx_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autohoneyx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autohoneyx_network
+
+  # Main Application (Dashboard)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autohoneyx_app
+    environment:
+      # Allow providing a full DATABASE_URL; default to a container-local SQLite for development
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/autohoneyx_dev.db}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: autohoneyx_db
+      DB_USER: autohoneyx
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+      - ./honeypot_data:/app/honeypot_data
+      - ./models:/app/models
+    ports:
+      - "8501:8501"  # Streamlit Dashboard
+    # Do not block startup on Postgres being healthy; application code
+    # now falls back to a local SQLite DB when PostgreSQL is unreachable.
+    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+  # SSH Honeypot
+  ssh_honeypot:
+    build:
+      context: .
+      dockerfile: honeypots/ssh/Dockerfile
+    container_name: autohoneyx_ssh
+    environment:
+      COWRIE_SSH_PORT: ${SSH_HONEYPOT_PORT:-2222}
+      DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+    volumes:
+      - ./honeypots/ssh/data:/app/honeypot_data
+      - ./logs:/app/logs
+    ports:
+      - "${SSH_HONEYPOT_PORT:-2222}:2222"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+  # Web Honeypot
+  web_honeypot:
+    build:
+      context: .
+      dockerfile: honeypots/web/Dockerfile
+    container_name: autohoneyx_web
+    environment:
+      WEB_PORT: ${WEB_HONEYPOT_PORT:-8080}
+      DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+      FLASK_ENV: production
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "${WEB_HONEYPOT_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+  # Database Honeypot
+  db_honeypot:
+    build:
+      context: .
+      dockerfile: honeypots/database/Dockerfile
+    container_name: autohoneyx_db_honeypot
+    environment:
+      DB_PORT: ${DB_HONEYPOT_PORT:-3307}
+      DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "${DB_HONEYPOT_PORT:-3307}:3307"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+  # Monitoring Service
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autohoneyx_monitor
+    environment:
+      DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./logs:/app/logs
+      - ./monitoring:/app/monitoring
+      - ./models:/app/models
+    depends_on:
+      - postgres
+      - ssh_honeypot
+      - web_honeypot
+      - db_honeypot
+    command: python -m monitoring.monitor_service
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  autohoneyx_network:
+    driver: bridge

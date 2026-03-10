@@ -1,0 +1,274 @@
+version: '3.8'
+
+# ============================================================================
+# AutoHoneyX Real-Time Secret Detection System
+# GitGuardian-Style Cloud Deployment (Docker Compose)
+# ============================================================================
+
+services:
+  # ========================================================================
+  # Database (PostgreSQL)
+  # ========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: autohoneyx_db_prod
+    environment:
+      POSTGRES_USER: ${DB_USER:-autohoneyx}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password}
+      POSTGRES_DB: ${DB_NAME:-autohoneyx_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-autohoneyx}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # ========================================================================
+  # Real-Time API Server
+  # ========================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: autohoneyx_api_prod
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_PORT: 8000
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITLAB_TOKEN: ${GITLAB_TOKEN}
+      SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./logs:/app/logs
+      - /etc/letsencrypt/live/your-domain.com:/etc/ssl/certs:ro
+    ports:
+      - "8000:8000"
+      - "443:443"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+
+  # ========================================================================
+  # Real-Time Monitoring Service
+  # ========================================================================
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: autohoneyx_monitor_prod
+    command: python -m monitoring.monitor_service
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MONITORED_REPOS: ${MONITORED_REPOS}
+      SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-300}
+      AUTO_REMEDIATE: ${AUTO_REMEDIATE:-false}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITLAB_TOKEN: ${GITLAB_TOKEN}
+    volumes:
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock  # For docker scanning
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+
+  # ========================================================================
+  # SSH Honeypot
+  # ========================================================================
+  ssh_honeypot:
+    build:
+      context: .
+      dockerfile: honeypots/ssh/Dockerfile.prod
+    container_name: autohoneyx_ssh_prod
+    environment:
+      SSH_PORT: ${SSH_HONEYPOT_PORT:-2222}
+      DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+    volumes:
+      - ./logs/ssh:/app/logs:rw
+    ports:
+      - "${SSH_HONEYPOT_PORT:-2222}:${SSH_HONEYPOT_PORT:-2222}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    restart: unless-stopped
+
+  # ========================================================================
+  # Web Honeypot (HTTP)
+  # ========================================================================
+  web_honeypot:
+    build:
+      context: honeypots/web
+      dockerfile: Dockerfile.prod
+    container_name: autohoneyx_web_honeypot_prod
+    environment:
+      HTTP_PORT: ${WEB_HONEYPOT_PORT:-8080}
+      DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+    volumes:
+      - ./logs/web:/app/logs:rw
+    ports:
+      - "${WEB_HONEYPOT_PORT:-8080}:${WEB_HONEYPOT_PORT:-8080}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # ========================================================================
+  # Prometheus (Metrics Collection)
+  # ========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: autohoneyx_prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # ========================================================================
+  # Grafana (Dashboard & Visualization)
+  # ========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: autohoneyx_grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # ========================================================================
+  # Elasticsearch (Optional - for ELK logging)
+  # ========================================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.0.0
+    container_name: autohoneyx_elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+  # ========================================================================
+  # Kibana (Optional - for ELK logging visualization)
+  # ========================================================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.0.0
+    container_name: autohoneyx_kibana
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  autohoneyx_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local

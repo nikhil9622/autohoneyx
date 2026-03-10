@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoHoneyX - Real-Time Security Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f1f 0%, #1a1a3a 100%);
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 4fr;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            background: #0a0a15;
+            border-right: 2px solid #3a3a5a;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .main {
+            display: flex;
+            flex-direction: column;
+            overflow: auto;
+        }
+        
+        header {
+            background: #1a1a2e;
+            border-bottom: 2px solid #3a3a5a;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff4444;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #44ff44;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .content {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            overflow-y: auto;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 2px solid #3a3a5a;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            border-color: #ff4444;
+            transform: translateY(-5px);
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ff4444;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: #a0a0c0;
+            font-size: 14px;
+        }
+        
+        .incidents-container {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 2px solid #3a3a5a;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .incidents-header {
+            color: #ff4444;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .incident-item {
+            background: rgba(51, 51, 76, 0.5);
+            border-left: 4px solid;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .incident-critical {
+            border-color: #ff3333;
+            background: rgba(255, 51, 51, 0.1);
+        }
+        
+        .incident-high {
+            border-color: #ff9933;
+            background: rgba(255, 153, 51, 0.1);
+        }
+        
+        .incident-medium {
+            border-color: #ffdd33;
+            background: rgba(255, 221, 51, 0.1);
+        }
+        
+        .incident-time {
+            color: #a0a0c0;
+            font-size: 12px;
+        }
+        
+        .incident-title {
+            color: #e0e0e0;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .severity-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .severity-critical {
+            background: #ff3333;
+            color: white;
+        }
+        
+        .severity-high {
+            background: #ff9933;
+            color: white;
+        }
+        
+        .severity-medium {
+            background: #ffdd33;
+            color: #000;
+        }
+        
+        .severity-low {
+            background: #44dd44;
+            color: #000;
+        }
+        
+        .menu-item {
+            padding: 12px;
+            margin: 8px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            color: #a0a0c0;
+        }
+        
+        .menu-item:hover {
+            background: #1a1a3a;
+            color: #ff4444;
+        }
+        
+        .menu-item.active {
+            background: #ff4444;
+            color: white;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        .connection-status {
+            display: inline-block;
+            padding: 4px 12px;
+            background: #2a2a4a;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .connected {
+            color: #44ff44;
+        }
+        
+        .disconnected {
+            color: #ff4444;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .refresh-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .refresh-btn:hover {
+            background: #ff6666;
+            transform: scale(1.05);
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #0a0a15;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #3a3a5a;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #5a5a7a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">🔒 AUTOHONEYX</div>
+            <div style="color: #a0a0c0; font-size: 12px; margin: 20px 0;">
+                Real-Time Secret Detection
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <div class="menu-item active" onclick="switchView('dashboard')">📊 Dashboard</div>
+                <div class="menu-item" onclick="switchView('incidents')">🚨 Incidents</div>
+                <div class="menu-item" onclick="switchView('analytics')">📈 Analytics</div>
+                <div class="menu-item" onclick="switchView('integrations')">🔗 Integrations</div>
+                <div class="menu-item" onclick="switchView('settings')">⚙️ Settings</div>
+            </div>
+            
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #3a3a5a;">
+                <div style="font-size: 12px; color: #a0a0c0; margin-bottom: 10px;">Connection</div>
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot" style="display: inline-block; margin-right: 5px;"></span>
+                    <span class="connected">Connected</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main">
+            <header>
+                <div>
+                    <h1 style="color: #e0e0e0;">🛡️ Security Monitoring Dashboard</h1>
+                    <p style="font-size: 12px; color: #a0a0c0; margin-top: 5px;">Real-Time GitGuardian-Style Detection</p>
+                </div>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+                    <div class="status-indicator">
+                        <div class="status-dot"></div>
+                        <span style="font-size: 12px;" id="systemStatus">ONLINE</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="content" id="dashboardContent">
+                <div class="stat-card">
+                    <div class="stat-label">Total Incidents</div>
+                    <div class="stat-value" id="totalIncidents">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Critical Issues</div>
+                    <div class="stat-value" style="color: #ff3333;" id="criticalCount">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">High Priority</div>
+                    <div class="stat-value" style="color: #ff9933;" id="highCount">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Risk Score</div>
+                    <div class="stat-value" id="riskScore">0</div>
+                    <div style="font-size: 12px; color: #a0a0c0;">/100</div>
+                </div>
+                
+                <div class="incidents-container">
+                    <div class="incidents-header">🚨 Latest Security Incidents</div>
+                    <div id="incidentsList" style="max-height: 400px; overflow-y: auto;">
+                        <div style="color: #a0a0c0; text-align: center; padding: 20px;">
+                            Waiting for incidents...
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="incidents-container" style="grid-column: 1 / -1;">
+                    <div class="incidents-header">📊 Incidents Timeline (Last 7 Days)</div>
+                    <div class="chart-container">
+                        <canvas id="timelineChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="incidents-container" style="grid-column: 1 / 2;">
+                    <div class="incidents-header">Severity Distribution</div>
+                    <div class="chart-container">
+                        <canvas id="severityChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="incidents-container" style="grid-column: 2 / 3;">
+                    <div class="incidents-header">Secret Types Detected</div>
+                    <div class="chart-container">
+                        <canvas id="secretTypesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const WS_URL = 'ws://localhost:8000/ws/incidents';
+        let ws = null;
+        let incidents = [];
+        let charts = {};
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            loadInitialData();
+            setInterval(loadInitialData, 30000); // Refresh every 30 seconds
+        });
+        
+        // WebSocket Connection
+        function connectWebSocket() {
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                console.log('Connected to real-time stream');
+                updateConnectionStatus(true);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleRealtimeEvent(data);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+            
+            ws.onclose = () => {
+                console.log('Disconnected, reconnecting...');
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+        
+        // Handle real-time events
+        function handleRealtimeEvent(data) {
+            if (data.type === 'incident') {
+                incidents.unshift(data);
+                if (incidents.length > 50) incidents.pop();
+                updateIncidentsList();
+                loadStats();
+            }
+        }
+        
+        // Load initial data
+        async function loadInitialData() {
+            try {
+                await Promise.all([
+                    loadStats(),
+                    loadIncidents(),
+                    loadCharts()
+                ]);
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        // Load statistics
+        async function loadStats() {
+            try {
+                const response = await axios.get(`${API_URL}/api/v1/stats`);
+                const stats = response.data;
+                
+                document.getElementById('totalIncidents').textContent = stats.total_incidents;
+                document.getElementById('criticalCount').textContent = stats.critical_count;
+                document.getElementById('highCount').textContent = stats.high_count;
+                document.getElementById('riskScore').textContent = stats.risk_score;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+        
+        // Load incidents
+        async function loadIncidents() {
+            try {
+                const response = await axios.get(`${API_URL}/api/v1/incidents?limit=50`);
+                incidents = response.data.incidents;
+                updateIncidentsList();
+            } catch (error) {
+                console.error('Error loading incidents:', error);
+            }
+        }
+        
+        // Update incidents list
+        function updateIncidentsList() {
+            const container = document.getElementById('incidentsList');
+            
+            if (incidents.length === 0) {
+                container.innerHTML = '<div style="color: #a0a0c0; text-align: center; padding: 20px;">No incidents</div>';
+                return;
+            }
+            
+            container.innerHTML = incidents.map(incident => {
+                const severityClass = `incident-${incident.severity.toLowerCase()}`;
+                const badgeClass = `severity-${incident.severity.toLowerCase()}`;
+                const time = new Date(incident.created_at || incident.timestamp).toLocaleString();
+                
+                return `
+                    <div class="incident-item ${severityClass}">
+                        <div>
+                            <span class="severity-badge ${badgeClass}">${incident.severity}</span>
+                            <span class="incident-title">${incident.title || incident.secret_type || 'Unknown'}</span>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 12px; color: #c0c0e0;">
+                            ${incident.message || incident.file || ''}
+                        </div>
+                        <div class="incident-time">${time}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Load charts
+        async function loadCharts() {
+            try {
+                // Timeline
+                const timelineResponse = await axios.get(`${API_URL}/api/v1/incidents-timeline?days=7`);
+                updateTimelineChart(timelineResponse.data.timeline);
+                
+                // Severity
+                const severityResponse = await axios.get(`${API_URL}/api/v1/severity-distribution`);
+                updateSeverityChart(severityResponse.data.severity_distribution);
+                
+                // Secret types
+                const secretsResponse = await axios.get(`${API_URL}/api/v1/secret-types`);
+                updateSecretTypesChart(secretsResponse.data.secret_types);
+            } catch (error) {
+                console.error('Error loading charts:', error);
+            }
+        }
+        
+        // Update timeline chart
+        function updateTimelineChart(data) {
+            const ctx = document.getElementById('timelineChart').getContext('2d');
+            
+            if (charts.timeline) charts.timeline.destroy();
+            
+            charts.timeline = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(data),
+                    datasets: [{
+                        label: 'Incidents',
+                        data: Object.values(data),
+                        borderColor: '#ff4444',
+                        backgroundColor: 'rgba(255, 68, 68, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { labels: { color: '#e0e0e0' } }
+                    },
+                    scales: {
+                        y: { ticks: { color: '#a0a0c0' }, grid: { color: '#3a3a5a' } },
+                        x: { ticks: { color: '#a0a0c0' }, grid: { color: '#3a3a5a' } }
+                    }
+                }
+            });
+        }
+        
+        // Update severity chart
+        function updateSeverityChart(data) {
+            const ctx = document.getElementById('severityChart').getContext('2d');
+            
+            if (charts.severity) charts.severity.destroy();
+            
+            charts.severity = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [
+                            data.CRITICAL || 0,
+                            data.HIGH || 0,
+                            data.MEDIUM || 0,
+                            data.LOW || 0
+                        ],
+                        backgroundColor: ['#ff3333', '#ff9933', '#ffdd33', '#44dd44']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { labels: { color: '#e0e0e0' } }
+                    }
+                }
+            });
+        }
+        
+        // Update secret types chart
+        function updateSecretTypesChart(data) {
+            const ctx = document.getElementById('secretTypesChart').getContext('2d');
+            
+            if (charts.secretTypes) charts.secretTypes.destroy();
+            
+            charts.secretTypes = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(data).slice(0, 10),
+                    datasets: [{
+                        label: 'Count',
+                        data: Object.values(data).slice(0, 10),
+                        backgroundColor: '#ff4444'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { labels: { color: '#e0e0e0' } }
+                    },
+                    scales: {
+                        y: { ticks: { color: '#a0a0c0' }, grid: { color: '#3a3a5a' } },
+                        x: { ticks: { color: '#a0a0c0' }, grid: { color: '#3a3a5a' } }
+                    }
+                }
+            });
+        }
+        
+        // Refresh data
+        function refreshData() {
+            loadInitialData();
+        }
+        
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            if (connected) {
+                status.innerHTML = '<span class="status-dot" style="display: inline-block; margin-right: 5px;"></span><span class="connected">Connected</span>';
+                document.getElementById('systemStatus').textContent = 'ONLINE';
+            } else {
+                status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #ff4444; border-radius: 50%; margin-right: 5px;"></span><span class="disconnected">Disconnected</span>';
+                document.getElementById('systemStatus').textContent = 'OFFLINE';
+            }
+        }
+        
+        // Switch view
+        function switchView(view) {
+            console.log('Switching to view:', view);
+            // In production, this would load different views
+        }
+    </script>
+</body>
+</html>
