@@ -7,6 +7,25 @@ version: '3.8'
 
 services:
   # ========================================================================
+  # Redis (Event Bus + Rate limiting storage)
+  # ========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: autohoneyx_redis_prod
+    ports:
+      - "6379:6379"
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # ========================================================================
   # Database (PostgreSQL)
   # ========================================================================
   postgres:
@@ -57,6 +76,8 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITLAB_TOKEN: ${GITLAB_TOKEN}
       SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-300}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:-redis://redis:6379/1}
     volumes:
       - ./logs:/app/logs
       - /etc/letsencrypt/live/your-domain.com:/etc/ssl/certs:ro
@@ -64,6 +85,8 @@ services:
       - "8000:8000"
       - "443:443"
     depends_on:
+      redis:
+        condition: service_started
       postgres:
         condition: service_healthy
     networks:
@@ -95,6 +118,7 @@ services:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITLAB_TOKEN: ${GITLAB_TOKEN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock  # For docker scanning
@@ -102,6 +126,8 @@ services:
       postgres:
         condition: service_healthy
       api:
+        condition: service_started
+      redis:
         condition: service_started
     networks:
       - autohoneyx_network
@@ -122,8 +148,9 @@ services:
       dockerfile: honeypots/ssh/Dockerfile.prod
     container_name: autohoneyx_ssh_prod
     environment:
-      SSH_PORT: ${SSH_HONEYPOT_PORT:-2222}
+      SSH_HONEYPOT_PORT: ${SSH_HONEYPOT_PORT:-2222}
       DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs/ssh:/app/logs:rw
     ports:
@@ -154,8 +181,9 @@ services:
       dockerfile: Dockerfile.prod
     container_name: autohoneyx_web_honeypot_prod
     environment:
-      HTTP_PORT: ${WEB_HONEYPOT_PORT:-8080}
+      WEB_PORT: ${WEB_HONEYPOT_PORT:-8080}
       DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs/web:/app/logs:rw
     ports:
@@ -174,6 +202,36 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    restart: unless-stopped
+
+  # ========================================================================
+  # Attack Processor (consume events + run analysis)
+  # ========================================================================
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: autohoneyx_processor_prod
+    command: python -m monitoring.attack_event_consumer
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-autohoneyx}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-autohoneyx_db}
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ATTACK_PROCESSOR_WORKERS: ${ATTACK_PROCESSOR_WORKERS:-3}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - autohoneyx_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
 
   # ========================================================================

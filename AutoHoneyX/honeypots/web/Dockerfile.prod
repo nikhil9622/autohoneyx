@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN useradd -m -u 10001 appuser
+
+COPY honeypots/web/app.py /app/app.py
+
+RUN pip install --no-cache-dir flask redis && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8080
+
+CMD ["python", "app.py"]
+

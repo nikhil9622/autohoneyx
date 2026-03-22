@@ -113,6 +113,8 @@ class InjectionEngine:
                 )
             elif token_type == 'api':
                 token_data = HoneytokenGenerator.generate_api_key()
+            elif token_type == 'ssh':
+                token_data = HoneytokenGenerator.generate_ssh_key()
             else:
                 token_data = HoneytokenGenerator.generate_aws_key()
             

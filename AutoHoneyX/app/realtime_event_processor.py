@@ -6,13 +6,31 @@ Coordinates between honeypot events and analysis engines
 
 import asyncio
 import logging
+import json
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from app.database import get_db_session
 from app.models import AttackLog, Alert, Honeytoken
 from app.incident_orchestrator import get_orchestrator
+from app.auto_response import evaluate_and_respond
 
 logger = logging.getLogger(__name__)
+
+
+def json_dumps_safe(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (bytes, bytearray)):
+            return value.decode("utf-8", errors="ignore")
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        try:
+            return str(value)
+        except Exception:
+            return None
 
 class RealtimeEventProcessor:
     """
@@ -95,6 +113,49 @@ class RealtimeEventProcessor:
             return None
         finally:
             session.close()
+
+    async def process_attack_event(self, attack_event: Dict[str, Any]) -> Optional[AttackLog]:
+        """
+        Ingest a generic honeypot attack event (not necessarily tied to a honeytoken).
+        Creates an AttackLog and queues it for full orchestrator processing.
+        """
+        source_ip = attack_event.get("source_ip") or attack_event.get("ip") or "unknown"
+        honeypot_type = attack_event.get("honeypot_type") or "unknown"
+        user_agent = attack_event.get("user_agent")
+
+        request_data = {
+            "event": attack_event.get("event"),
+            "path": attack_event.get("path") or attack_event.get("request_path"),
+            "method": attack_event.get("method") or attack_event.get("request_method"),
+            "body": attack_event.get("body") or attack_event.get("request_body"),
+            "details": attack_event,
+        }
+
+        session = get_db_session()
+        try:
+            attack_log = AttackLog(
+                honeypot_type=honeypot_type,
+                source_ip=source_ip,
+                user_agent=user_agent,
+                request_method=request_data.get("method"),
+                request_path=request_data.get("path"),
+                request_body=json_dumps_safe(request_data.get("body")),
+                response_code=attack_event.get("response_code", 200),
+                timestamp=datetime.utcnow(),
+                severity=attack_event.get("severity", "MEDIUM"),
+                attack_metadata=attack_event,
+            )
+            session.add(attack_log)
+            session.commit()
+
+            await self.processing_queue.put(attack_log)
+            return attack_log
+        except Exception as e:
+            logger.error(f"Error ingesting attack event: {e}")
+            self.error_count += 1
+            return None
+        finally:
+            session.close()
     
     async def start_processing(self, num_workers: int = 3):
         """
@@ -137,6 +198,25 @@ class RealtimeEventProcessor:
                     
                     logger.info(f"{worker_id}: Completed analysis for {attack_log.id}")
                     logger.debug(f"Report: {report}")
+
+                    # Safe auto-response (blocklist + audit + notifications)
+                    try:
+                        severity = (
+                            report.get("stages", {})
+                            .get("kill_chain_mapping", {})
+                            .get("severity_level", attack_log.severity or "MEDIUM")
+                        )
+                        await evaluate_and_respond(
+                            source_ip=str(attack_log.source_ip),
+                            severity=str(severity).upper(),
+                            context={
+                                "attack_id": str(attack_log.id),
+                                "reason": "Honeypot attack processed",
+                                "honeypot_type": attack_log.honeypot_type,
+                            },
+                        )
+                    except Exception as resp_err:
+                        logger.warning(f"{worker_id}: Auto-response skipped: {resp_err}")
                     
                 except Exception as e:
                     logger.error(f"{worker_id}: Error processing attack: {e}")

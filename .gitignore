@@ -20,6 +20,10 @@ AutoHoneyX/venv/
 *.sqlite
 *.sqlite3
 
+# Test data with credentials
+AutoHoneyX/honeypot_data/
+AutoHoneyX/sample-project-basic/
+
 # Logs / temp
 logs/
 *.log

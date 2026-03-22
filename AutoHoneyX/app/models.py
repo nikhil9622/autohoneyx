@@ -241,3 +241,42 @@ class PlaybookExecution(Base):
     def __repr__(self):
         return f"<PlaybookExecution {self.playbook_name}>"
 
+
+class BlockedIP(Base):
+    """Blocked IP addresses (used for auto-response and enforcement)"""
+    __tablename__ = "blocked_ips"
+
+    if "postgresql" in config.DATABASE_URL:
+        from sqlalchemy.dialects.postgresql import UUID, INET
+
+        id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+        ip_address = Column(INET, nullable=False, unique=True, index=True)
+    else:
+        id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+        ip_address = Column(String(45), nullable=False, unique=True, index=True)
+
+    reason = Column(Text)
+    severity = Column(String(20), default="HIGH")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime)
+    is_active = Column(Boolean, default=True, index=True)
+
+
+class AuditEvent(Base):
+    """Tamper-evident audit trail (hash-chained)"""
+    __tablename__ = "audit_events"
+
+    if "postgresql" in config.DATABASE_URL:
+        from sqlalchemy.dialects.postgresql import UUID
+
+        id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    else:
+        id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    event_type = Column(String(50), nullable=False, index=True)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    prev_hash = Column(String(64))
+    event_hash = Column(String(64), index=True)
+

@@ -1,0 +1,120 @@
+name: autohoneyx-prod
+services:
+- name: api
+  github:
+    branch: main
+    repo: nikhil9622/AutoHoneyX
+  dockerfile_path: AutoHoneyX/Dockerfile.prod
+  build_command: |
+    cd AutoHoneyX && pip install -r requirements.txt
+  run_command: |
+    cd AutoHoneyX && \
+    python -m uvicorn app.realtime_api:app --host 0.0.0.0 --port 8080
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: postgresql://${db.username}:${db.password}@${db.host}:${db.port}/${db.name}
+  - key: ENVIRONMENT
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: JWT_SECRET_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: ${JWT_SECRET_KEY}
+  - key: SLACK_WEBHOOK_URL
+    scope: RUN_AND_BUILD_TIME
+    value: ${SLACK_WEBHOOK_URL}
+  - key: LOG_LEVEL
+    scope: RUN_AND_BUILD_TIME
+    value: INFO
+  - key: REDIS_URL
+    scope: RUN_AND_BUILD_TIME
+    value: redis://${redis.connection.host}:${redis.connection.port}
+  - key: ALLOWED_ORIGINS
+    scope: RUN_AND_BUILD_TIME
+    value: https://${app.domain}
+  http_port: 8080
+  health_check:
+    http_path: /health
+  http_routes:
+  - path: /
+    preserve_path_prefix: true
+  min_instances: 1
+  max_instances: 3
+  instance_count: 1
+  instance_size_slug: basic-xs
+
+- name: monitor
+  github:
+    branch: main
+    repo: nikhil9622/AutoHoneyX
+  dockerfile_path: AutoHoneyX/Dockerfile.prod
+  build_command: |
+    cd AutoHoneyX && pip install -r requirements.txt
+  run_command: |
+    cd AutoHoneyX && python -m monitoring.monitor_service
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: postgresql://${db.username}:${db.password}@${db.host}:${db.port}/${db.name}
+  - key: ENVIRONMENT
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: LOG_LEVEL
+    scope: RUN_AND_BUILD_TIME
+    value: INFO
+  min_instances: 1
+  instance_size_slug: basic-xs
+
+- name: dashboard
+  github:
+    branch: main
+    repo: nikhil9622/AutoHoneyX
+  dockerfile_path: AutoHoneyX/Dockerfile.prod
+  build_command: |
+    cd AutoHoneyX && pip install -r requirements.txt streamlit
+  run_command: |
+    cd AutoHoneyX && streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: postgresql://${db.username}:${db.password}@${db.host}:${db.port}/${db.name}
+  http_port: 8501
+  http_routes:
+  - path: /
+  min_instances: 1
+  instance_size_slug: basic-xs
+
+databases:
+- name: db
+  engine: PG
+  version: "15"
+  production: true
+  min_instances: 1
+  instance_size_slug: db-s-1vcpu-1gb
+  connection_name: autohoneyx_db
+
+- name: redis
+  engine: REDIS
+  version: "7"
+  production: true
+  min_instances: 1
+  instance_size_slug: db-s-1vcpu-1gb
+
+static_sites:
+- name: api-docs
+  source_dir: AutoHoneyX/dashboard
+  github:
+    repo: nikhil9622/AutoHoneyX
+    branch: main
+  routes:
+  - path: /docs
+
+envs:
+- key: JWT_SECRET_KEY
+  value: ${JWT_SECRET_KEY}
+- key: SLACK_WEBHOOK_URL
+  value: ${SLACK_WEBHOOK_URL}
+- key: GITHUB_TOKEN
+  value: ${GITHUB_TOKEN}
+- key: GITLAB_TOKEN
+  value: ${GITLAB_TOKEN}

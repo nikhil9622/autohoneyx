@@ -1,6 +1,16 @@
 version: '3.8'
 
 services:
+  # Redis (durable event bus + rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: autohoneyx_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
@@ -38,6 +48,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-password}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./:/app
       - ./logs:/app/logs
@@ -61,6 +72,7 @@ services:
     environment:
       COWRIE_SSH_PORT: ${SSH_HONEYPOT_PORT:-2222}
       DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./honeypots/ssh/data:/app/honeypot_data
       - ./logs:/app/logs
@@ -83,6 +95,7 @@ services:
       WEB_PORT: ${WEB_HONEYPOT_PORT:-8080}
       DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
       FLASK_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs:/app/logs
     ports:
@@ -103,6 +116,7 @@ services:
     environment:
       DB_PORT: ${DB_HONEYPOT_PORT:-3307}
       DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs:/app/logs
     ports:
@@ -129,6 +143,7 @@ services:
       ALERT_EMAIL: ${ALERT_EMAIL:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./logs:/app/logs
       - ./monitoring:/app/monitoring
@@ -139,6 +154,27 @@ services:
       - web_honeypot
       - db_honeypot
     command: python -m monitoring.monitor_service
+    networks:
+      - autohoneyx_network
+    restart: unless-stopped
+
+  # Attack event consumer (runs analysis pipeline)
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autohoneyx_processor
+    environment:
+      DATABASE_URL: postgresql://autohoneyx:${DB_PASSWORD:-password}@postgres:5432/autohoneyx_db
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ATTACK_PROCESSOR_WORKERS: ${ATTACK_PROCESSOR_WORKERS:-3}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - postgres
+    command: python -m monitoring.attack_event_consumer
     networks:
       - autohoneyx_network
     restart: unless-stopped

@@ -4,7 +4,7 @@ Provides role-based access control (RBAC)
 """
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredential
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -61,7 +61,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-async def get_current_user(credentials: HTTPAuthCredential = Depends(security)) -> dict:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
     """
     Verify JWT token and extract user information
     

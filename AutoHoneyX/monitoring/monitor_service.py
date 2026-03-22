@@ -5,7 +5,7 @@ import os
 import logging
 from datetime import datetime, timedelta
 from app.realtime_scanner import RealtimeSecretScanner
-from app.realtime_api import manager
+from app.event_bus import BusEvent, get_event_bus
 from app.database import get_db_session
 from app.models import Alert
 
@@ -39,6 +39,7 @@ class MonitoringService:
         """Start the monitoring service"""
         logger.info("Starting MonitoringService")
         self.is_running = True
+        self.bus = await get_event_bus()
         
         try:
             # Start multiple monitoring tasks
@@ -80,8 +81,14 @@ class MonitoringService:
                                 # Create incident
                                 incident_id = await self.scanner.create_incident(finding)
                                 
-                                # Broadcast to dashboard
-                                await manager.broadcast_incident(finding)
+                                # Publish to event bus (API broadcasts to WS)
+                                await self.bus.publish(
+                                    BusEvent(
+                                        event_type="incident",
+                                        payload=finding,
+                                        timestamp=datetime.utcnow().isoformat(),
+                                    )
+                                )
                                 
                                 # Auto-remediate if enabled
                                 if os.getenv('AUTO_REMEDIATE', 'false').lower() == 'true':
@@ -115,7 +122,13 @@ class MonitoringService:
                         
                         if findings:
                             for finding in findings:
-                                await manager.broadcast_incident(finding)
+                                await self.bus.publish(
+                                    BusEvent(
+                                        event_type="incident",
+                                        payload=finding,
+                                        timestamp=datetime.utcnow().isoformat(),
+                                    )
+                                )
                     
                     except Exception as e:
                         logger.error(f"Error reading log file {log_file}: {e}")
@@ -155,7 +168,13 @@ class MonitoringService:
                     }
                     
                     # Broadcast stats update
-                    await manager.broadcast_stats(stats)
+                    await self.bus.publish(
+                        BusEvent(
+                            event_type="stats",
+                            payload=stats,
+                            timestamp=datetime.utcnow().isoformat(),
+                        )
+                    )
                 
                 # Update every 30 seconds
                 await asyncio.sleep(30)

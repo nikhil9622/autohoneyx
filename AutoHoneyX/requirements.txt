@@ -95,3 +95,9 @@ jsonschema==4.19.1
 
 # Enhanced logging
 structlog==23.2.0
+
+# Event bus / durable real-time queue
+redis==5.0.4
+
+# SSH honeypot (server-side)
+paramiko==3.4.0
